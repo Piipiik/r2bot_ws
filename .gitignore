@@ -1,19 +1,94 @@
+# ========== Catkin 编译生成文件 ==========
+build/
+devel/
+install/
+log/
+*.log
+*.bag.active
+*.bag.tmp
+
+# ========== ROS 运行缓存、日志、录制包 ==========
+*.bag
+*.bag.*
+rosbag_play*.txt
+roslaunch-*.log
+rosparam_*.dump
+.cache/
+.ros/
+ros_logs/
+
+# ========== C/C++ 编译中间文件 ==========
 CMakeLists.txt.user
 CMakeCache.txt
-CMakeFiles
-CMakeScripts
-Testing
+CMakeFiles/
 Makefile
-cmake_install.cmake
-install_manifest.txt
-compile_commands.json
-CTestTestfile.cmake
-_deps
-CMakeUserPresets.json
+*.o
+*.obj
+*.so
+*.a
+*.dll
+*.exe
+*.out
+*.elf
+*.hex
+*.bin
+.deps/
+.build/
 
-# CLion
-#  JetBrains specific template is maintained in a separate JetBrains.gitignore that can
-#  be found at https://github.com/github/gitignore/blob/main/Global/JetBrains.gitignore
-#  and can be added to the global gitignore or merged into this file.  For a more nuclear
-#  option (not recommended) you can uncomment the following to ignore the entire idea folder.
-#cmake-build-*
+# ========== Python 缓存 ==========
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+env/
+venv/
+.venv/
+*.egg-info/
+dist/
+build_py/
+
+# ========== IDE 编辑器文件 ==========
+# VSCode
+.vscode/
+*.code-workspace
+# Clion
+.idea/
+# QtCreator
+*.user
+*.pro.user
+# 通用
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# ========== 硬件、仿真临时文件 ==========
+gazebo_logs/
+gazebo_models_cache/
+gazebo_*.log
+rviz_*.tmp
+*.urdf.xacro.bak
+*.launch.bak
+*.yaml.bak
+
+# ========== 驱动、CAN、串口临时日志 ==========
+can_log*.txt
+serial_dump*.txt
+*.dump
+
+# ========== 本地私有配置（不要上传账号、IP、密码） ==========
+local_config.yaml
+secret.yaml
+robot_ip.txt
+ssh_key*
+*.pem
+
+# ========== 其他临时文件 ==========
+tmp/
+temp/
+*.bak
+*.backup
+*.zip
+*.tar.gz
+*.rar
