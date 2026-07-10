@@ -11,20 +11,26 @@ find_package(rclcpp REQUIRED)
 find_package(sensor_msgs REQUIRED)
 find_package(std_msgs REQUIRED)
 
-find_path(REALSENSE2_INCLUDE_DIR
-  NAMES librealsense2/rs.hpp
-  HINTS "$ENV{HOME}/librealsense/include" "/home/yzy/librealsense/include"
-)
-find_library(REALSENSE2_LIBRARY
-  NAMES realsense2 librealsense2
-  HINTS
-    "$ENV{HOME}/librealsense/build/Release"
-    "/home/yzy/librealsense/build/Release"
-    "$ENV{HOME}/librealsense/build"
-    "/home/yzy/librealsense/build"
-)
-if(NOT REALSENSE2_INCLUDE_DIR OR NOT REALSENSE2_LIBRARY)
-  message(FATAL_ERROR "librealsense2 not found. Build librealsense first or adjust REALSENSE2 paths.")
+get_filename_component(WORKSPACE_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/../.." ABSOLUTE)
+unset(realsense2_DIR CACHE)
+unset(realsense2_DIR)
+set(REALSENSE2_INSTALL_DIR "${WORKSPACE_ROOT}/install/librealsense2/lib/cmake/realsense2")
+set(REALSENSE2_SOURCE_INCLUDE_DIR "${WORKSPACE_ROOT}/librealsense/include")
+set(REALSENSE2_SOURCE_LIBRARY "${WORKSPACE_ROOT}/librealsense/build/Release/librealsense2.so")
+
+if(EXISTS "${REALSENSE2_INSTALL_DIR}/realsense2Config.cmake")
+  set(realsense2_DIR "${REALSENSE2_INSTALL_DIR}")
+  find_package(realsense2 CONFIG REQUIRED)
+elseif(EXISTS "${REALSENSE2_SOURCE_INCLUDE_DIR}/librealsense2/rs.hpp" AND EXISTS "${REALSENSE2_SOURCE_LIBRARY}")
+  if(NOT TARGET realsense2::realsense2)
+    add_library(realsense2::realsense2 SHARED IMPORTED)
+    set_target_properties(realsense2::realsense2 PROPERTIES
+      IMPORTED_LOCATION "${REALSENSE2_SOURCE_LIBRARY}"
+      INTERFACE_INCLUDE_DIRECTORIES "${REALSENSE2_SOURCE_INCLUDE_DIR}"
+    )
+  endif()
+else()
+  message(FATAL_ERROR "realsense2 not found. Build the librealsense2 package or the workspace-local librealsense source tree first.")
 endif()
 # uncomment the following section in order to fill in
 # further dependencies manually.
@@ -44,8 +50,7 @@ endif()
 
 add_executable(d435_camera_node src/d435_camera_node.cpp)
 ament_target_dependencies(d435_camera_node rclcpp sensor_msgs std_msgs)
-target_include_directories(d435_camera_node PRIVATE ${REALSENSE2_INCLUDE_DIR})
-target_link_libraries(d435_camera_node ${REALSENSE2_LIBRARY})
+target_link_libraries(d435_camera_node realsense2::realsense2)
 
 install(TARGETS
   d435_camera_node

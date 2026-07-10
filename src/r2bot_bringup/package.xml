@@ -19,6 +19,7 @@
   <depend>cv_bridge</depend>
   <depend>message_filters</depend>
   <depend>tf2_geometry_msgs</depend>
+  <depend>librealsense2</depend>
   <exec_depend>chassis_can_driver</exec_depend>
   <exec_depend>ldlidar_ros2</exec_depend>
   <exec_depend>r2bot_description</exec_depend>
