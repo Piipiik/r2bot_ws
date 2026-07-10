@@ -2,12 +2,17 @@ import os
 import launch
 import launch_ros
 from ament_index_python.packages import get_package_share_directory
-from launch.launch_description_sources import PythonLaunchDescriptionSource, AnyLaunchDescriptionSource
+from launch.conditions import IfCondition
+from launch.launch_description_sources import PythonLaunchDescriptionSource
+from launch.substitutions import LaunchConfiguration
 
 def generate_launch_description():
     r2bot_bringup_dir = get_package_share_directory('r2bot_bringup')
     ldlidar_ros2_dir = get_package_share_directory('ldlidar_ros2')
-    astra_camera_dir = get_package_share_directory('astra_camera')
+    object_params = os.path.join(r2bot_bringup_dir, 'config', 'object_follower.yaml')
+    use_camera = LaunchConfiguration('use_camera')
+    enable_object_follower = LaunchConfiguration('enable_object_follower')
+    lidar_port_name = LaunchConfiguration('lidar_port_name')
 
     # 1. URDF 与 TF
     urdf2tf = launch.actions.IncludeLaunchDescription(
@@ -41,22 +46,40 @@ def generate_launch_description():
     ldlidar = launch.actions.IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
             os.path.join(ldlidar_ros2_dir, 'launch', 'ld06.launch.py')
-        )
+        ),
+        launch_arguments={
+            'port_name': lidar_port_name,
+        }.items(),
     )
     ldlidar_delay = launch.actions.TimerAction(period=5.0, actions=[ldlidar])
 
-    # 5. 摄像头（延时 3s）
-    astra_camera = launch.actions.IncludeLaunchDescription(
-        AnyLaunchDescriptionSource(
-            os.path.join(astra_camera_dir, 'launch', 'astra_pro.launch.xml')
-        )
+    # 5. D435 摄像头
+    d435_camera = launch_ros.actions.Node(
+        package='r2bot_bringup',
+        executable='d435_camera_node',
+        name='d435_camera_node',
+        output='screen',
+        condition=IfCondition(use_camera),
     )
-    astra_camera_delay = launch.actions.TimerAction(period=3.0, actions=[astra_camera])
+    d435_camera_delay = launch.actions.TimerAction(period=3.0, actions=[d435_camera])
+
+    object_follower = launch_ros.actions.Node(
+        package='r2bot_bringup',
+        executable='rgbd_object_approach.py',
+        name='rgbd_object_approach',
+        output='screen',
+        parameters=[object_params],
+        condition=IfCondition(enable_object_follower),
+    )
 
     return launch.LaunchDescription([
+        launch.actions.DeclareLaunchArgument('use_camera', default_value='true'),
+        launch.actions.DeclareLaunchArgument('enable_object_follower', default_value='false'),
+        launch.actions.DeclareLaunchArgument('lidar_port_name', default_value='/dev/jlink_lidar'),
         urdf2tf,
         odom_calc_node,
         chassis_driver,
         ldlidar_delay,
-        astra_camera_delay
+        d435_camera_delay,
+        object_follower
     ])

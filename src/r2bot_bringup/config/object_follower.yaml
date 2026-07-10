@@ -1,0 +1,30 @@
+rgbd_object_approach:
+  ros__parameters:
+    color_topic: /camera/color/image_raw
+    depth_topic: /camera/aligned_depth_to_color/image_raw
+    camera_info_topic: /camera/color/camera_info
+    cmd_vel_topic: /cmd_vel
+    target_frame: base_link
+    hsv_lower: [0, 90, 70]
+    hsv_upper: [10, 255, 255]
+    hsv_lower_2: [170, 90, 70]
+    hsv_upper_2: [180, 255, 255]
+    enable_second_hsv_range: true
+    min_area_px: 1200.0
+    depth_min_m: 0.15
+    depth_max_m: 3.0
+    depth_scale_m: 0.001
+    desired_distance_m: 0.60
+    stop_tolerance_m: 0.05
+    center_tolerance_px: 35.0
+    linear_kp: 0.6
+    angular_kp: 1.2
+    max_linear_speed: 0.25
+    max_reverse_speed: 0.12
+    max_angular_speed: 0.8
+    approach_only_when_centered: true
+    search_when_lost: false
+    search_angular_speed: 0.25
+    target_timeout_s: 0.6
+    depth_window_px: 5
+    publish_debug_image: true

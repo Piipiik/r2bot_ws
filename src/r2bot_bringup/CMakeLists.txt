@@ -7,6 +7,25 @@ endif()
 
 # find dependencies
 find_package(ament_cmake REQUIRED)
+find_package(rclcpp REQUIRED)
+find_package(sensor_msgs REQUIRED)
+find_package(std_msgs REQUIRED)
+
+find_path(REALSENSE2_INCLUDE_DIR
+  NAMES librealsense2/rs.hpp
+  HINTS "$ENV{HOME}/librealsense/include" "/home/yzy/librealsense/include"
+)
+find_library(REALSENSE2_LIBRARY
+  NAMES realsense2 librealsense2
+  HINTS
+    "$ENV{HOME}/librealsense/build/Release"
+    "/home/yzy/librealsense/build/Release"
+    "$ENV{HOME}/librealsense/build"
+    "/home/yzy/librealsense/build"
+)
+if(NOT REALSENSE2_INCLUDE_DIR OR NOT REALSENSE2_LIBRARY)
+  message(FATAL_ERROR "librealsense2 not found. Build librealsense first or adjust REALSENSE2 paths.")
+endif()
 # uncomment the following section in order to fill in
 # further dependencies manually.
 # find_package(<dependency> REQUIRED)
@@ -23,19 +42,15 @@ if(BUILD_TESTING)
   ament_lint_auto_find_test_dependencies()
 endif()
 
-# find_package(rclcpp REQUIRED)
-# find_package(tf2 REQUIRED)
-# find_package(tf2_ros REQUIRED)
-# find_package(geometry_msgs REQUIRED)
-# find_package(nav_msgs REQUIRED)
+add_executable(d435_camera_node src/d435_camera_node.cpp)
+ament_target_dependencies(d435_camera_node rclcpp sensor_msgs std_msgs)
+target_include_directories(d435_camera_node PRIVATE ${REALSENSE2_INCLUDE_DIR})
+target_link_libraries(d435_camera_node ${REALSENSE2_LIBRARY})
 
-# add_executable(odom2tf src/odom2tf.cpp)
-# ament_target_dependencies(odom2tf
-#     rclcpp tf2 nav_msgs geometry_msgs tf2_ros
-# )
-
-# install(TARGETS odom2tf
-#     DESTINATION lib/${PROJECT_NAME})
+install(TARGETS
+  d435_camera_node
+  DESTINATION lib/${PROJECT_NAME}
+)
 
 # 末尾加上这段即可
 install(DIRECTORY
@@ -46,6 +61,9 @@ install(DIRECTORY
 
 install(PROGRAMS
   scripts/odom_calculator.py
+  scripts/rgbd_object_approach.py
+  scripts/direction.py
+  scripts/align_to_obstacles.py
   DESTINATION lib/${PROJECT_NAME}
 )
 

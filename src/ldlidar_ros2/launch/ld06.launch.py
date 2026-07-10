@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
 from launch import LaunchDescription
+from launch.actions import DeclareLaunchArgument
+from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
 
 '''
@@ -22,6 +24,9 @@ Parameter Description:
 '''
 
 def generate_launch_description():
+  port_name = LaunchConfiguration('port_name')
+  serial_baudrate = LaunchConfiguration('serial_baudrate')
+
   # LDROBOT LiDAR publisher node
   ldlidar_node = Node(
       package='ldlidar_ros2',
@@ -33,8 +38,8 @@ def generate_launch_description():
         {'laser_scan_topic_name': 'scan'},
         {'point_cloud_2d_topic_name': 'pointcloud2d'},
         {'frame_id': 'laser_link'},
-        {'port_name': '/dev/jlink_lidar'},
-        {'serial_baudrate': 230400},
+        {'port_name': port_name},
+        {'serial_baudrate': serial_baudrate},
         {'laser_scan_dir': True},
         {'enable_angle_crop_func': False},
         {'angle_crop_min': 135.0},  # unit is degress
@@ -48,6 +53,8 @@ def generate_launch_description():
   # Define LaunchDescription variable
   ld = LaunchDescription()
 
+  ld.add_action(DeclareLaunchArgument('port_name', default_value='/dev/jlink_lidar'))
+  ld.add_action(DeclareLaunchArgument('serial_baudrate', default_value='230400'))
   ld.add_action(ldlidar_node)
 
   return ld

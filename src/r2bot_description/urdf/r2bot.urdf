@@ -39,4 +39,50 @@
     <origin xyz="0.325 0.0 0.13" rpy="0 0 0" />
   </joint>
 
+  <link name="camera_link">
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <box size="0.09 0.03 0.025" />
+      </geometry>
+      <material name="gray">
+        <color rgba="0.3 0.3 0.3 0.8" />
+      </material>
+    </visual>
+  </link>
+
+  <joint name="camera_joint" type="fixed">
+    <parent link="base_link" />
+    <child link="camera_link" />
+    <origin xyz="0.245 0.0 0.235" rpy="0 0 0" />
+  </joint>
+
+  <link name="camera_color_frame" />
+  <joint name="camera_color_joint" type="fixed">
+    <parent link="camera_link" />
+    <child link="camera_color_frame" />
+    <origin xyz="0 0 0" rpy="0 0 0" />
+  </joint>
+
+  <link name="camera_color_optical_frame" />
+  <joint name="camera_color_optical_joint" type="fixed">
+    <parent link="camera_color_frame" />
+    <child link="camera_color_optical_frame" />
+    <origin xyz="0 0 0" rpy="-1.57079632679 0 -1.57079632679" />
+  </joint>
+
+  <link name="camera_depth_frame" />
+  <joint name="camera_depth_joint" type="fixed">
+    <parent link="camera_link" />
+    <child link="camera_depth_frame" />
+    <origin xyz="0 0 0" rpy="0 0 0" />
+  </joint>
+
+  <link name="camera_depth_optical_frame" />
+  <joint name="camera_depth_optical_joint" type="fixed">
+    <parent link="camera_depth_frame" />
+    <child link="camera_depth_optical_frame" />
+    <origin xyz="0 0 0" rpy="-1.57079632679 0 -1.57079632679" />
+  </joint>
+
 </robot>
