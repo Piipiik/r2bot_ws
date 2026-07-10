@@ -19,6 +19,15 @@ def generate_launch_description():
     tolerance_mm = LaunchConfiguration('tolerance_mm')
     sector_deg = LaunchConfiguration('sector_deg')
     timeout_s = LaunchConfiguration('timeout_s')
+    kp_linear = LaunchConfiguration('kp_linear')
+    max_vx = LaunchConfiguration('max_vx')
+    max_vy = LaunchConfiguration('max_vy')
+    max_speed_xy = LaunchConfiguration('max_speed_xy')
+    kp_yaw = LaunchConfiguration('kp_yaw')
+    max_wz = LaunchConfiguration('max_wz')
+    yaw_tolerance_deg = LaunchConfiguration('yaw_tolerance_deg')
+    yaw_translation_gate_deg = LaunchConfiguration('yaw_translation_gate_deg')
+    status_interval_s = LaunchConfiguration('status_interval_s')
     port_name = LaunchConfiguration('port_name')
     start_lidar = LaunchConfiguration('start_lidar')
     start_chassis = LaunchConfiguration('start_chassis')
@@ -71,6 +80,15 @@ def generate_launch_description():
             '--tolerance-mm', tolerance_mm,
             '--sector-deg', sector_deg,
             '--timeout-s', timeout_s,
+            '--kp-linear', kp_linear,
+            '--max-vx', max_vx,
+            '--max-vy', max_vy,
+            '--max-speed-xy', max_speed_xy,
+            '--kp-yaw', kp_yaw,
+            '--max-wz', max_wz,
+            '--yaw-tolerance-deg', yaw_tolerance_deg,
+            '--yaw-translation-gate-deg', yaw_translation_gate_deg,
+            '--status-interval-s', status_interval_s,
             '--source', source,
             '--scan-topic', scan_topic,
             '--cmd-vel-topic', cmd_vel_topic,
@@ -88,7 +106,16 @@ def generate_launch_description():
         DeclareLaunchArgument('tolerance_mm', default_value='20'),
         DeclareLaunchArgument('sector_deg', default_value='8.0'),
         DeclareLaunchArgument('timeout_s', default_value='20.0'),
-        DeclareLaunchArgument('port_name', default_value='/dev/jlink_lidar'),
+        DeclareLaunchArgument('kp_linear', default_value='0.003'),
+        DeclareLaunchArgument('max_vx', default_value='0.15'),
+        DeclareLaunchArgument('max_vy', default_value='0.15'),
+        DeclareLaunchArgument('max_speed_xy', default_value='0.15'),
+        DeclareLaunchArgument('kp_yaw', default_value='1.8'),
+        DeclareLaunchArgument('max_wz', default_value='0.5'),
+        DeclareLaunchArgument('yaw_tolerance_deg', default_value='3.0'),
+        DeclareLaunchArgument('yaw_translation_gate_deg', default_value='6.0'),
+        DeclareLaunchArgument('status_interval_s', default_value='0.5'),
+        DeclareLaunchArgument('port_name', default_value='/dev/lidar_ld06'),
         DeclareLaunchArgument('source', default_value='serial'),
         DeclareLaunchArgument('start_lidar', default_value='false'),
         DeclareLaunchArgument('start_chassis', default_value='true'),

@@ -63,9 +63,11 @@ def build_argparser() -> argparse.ArgumentParser:
     parser.add_argument('--kp-linear', type=float, default=0.003, help='linear proportional gain in m/s per mm error')
     parser.add_argument('--max-vx', type=float, default=0.15, help='maximum forward/backward speed in m/s')
     parser.add_argument('--max-vy', type=float, default=0.15, help='maximum lateral speed in m/s')
+    parser.add_argument('--max-speed-xy', type=float, default=0.15, help='maximum combined planar speed in m/s')
     parser.add_argument('--kp-yaw', type=float, default=1.8, help='yaw lock proportional gain')
     parser.add_argument('--max-wz', type=float, default=0.5, help='maximum angular speed in rad/s')
     parser.add_argument('--yaw-tolerance-deg', type=float, default=3.0, help='allowed heading drift before finish')
+    parser.add_argument('--yaw-translation-gate-deg', type=float, default=6.0, help='when yaw error grows above this, translation will be reduced to keep heading')
     parser.add_argument('--scan-topic', default='/scan', help='LaserScan topic')
     parser.add_argument('--cmd-vel-topic', default='/cmd_vel', help='Twist command topic')
     parser.add_argument('--odom-topic', default='/odom', help='Odometry topic used for heading lock')
@@ -73,7 +75,7 @@ def build_argparser() -> argparse.ArgumentParser:
     parser.add_argument('--data-timeout-s', type=float, default=1.0, help='scan/odom freshness timeout in seconds')
     parser.add_argument('--status-interval-s', type=float, default=0.5, help='seconds between status logs')
     parser.add_argument('--source', choices=['auto', 'ros', 'serial'], default='auto', help='distance source')
-    parser.add_argument('--serial-port', default='/dev/jlink_lidar', help='LD06 serial device path')
+    parser.add_argument('--serial-port', default='/dev/lidar_ld06', help='LD06 serial device path')
     parser.add_argument('--serial-baudrate', type=int, default=230400, help='LD06 serial baudrate')
     parser.add_argument('--serial-timeout', type=float, default=0.1, help='LD06 serial read timeout in seconds')
     parser.add_argument('--serial-offset', type=float, default=0.0, help='LD06 angle offset in degrees')
@@ -111,7 +113,13 @@ def build_serial_candidates(requested_port: str) -> List[str]:
             return
         candidates.append(path)
 
+    def add_matching(pattern: str) -> None:
+        for path in sorted(glob.glob(pattern)):
+            add(path)
+
     add(requested_port)
+    add('/dev/lidar_ld06')
+    add('/dev/jlink_lidar')
 
     try:
         resolved = os.path.realpath(requested_port)
@@ -119,11 +127,43 @@ def build_serial_candidates(requested_port: str) -> List[str]:
         resolved = requested_port
     add(resolved)
 
+    add_matching('/dev/serial/by-id/*SEGGER*')
+    add_matching('/dev/serial/by-id/*J-Link*')
+    add_matching('/dev/serial/by-id/*LDLiDAR*')
+    add_matching('/dev/serial/by-id/*CP210*')
+    add_matching('/dev/serial/by-id/*Silicon_Labs*')
+
     for pattern in ('/dev/ttyACM*', '/dev/ttyUSB*'):
         for path in sorted(glob.glob(pattern)):
-            add(path)
+            usb_ids = read_usb_ids_for_tty(path)
+            if usb_ids in {('1366', '0105'), ('10c4', 'ea60')}:
+                add(path)
 
     return candidates
+
+
+def read_usb_ids_for_tty(path: str) -> Optional[tuple[str, str]]:
+    tty_name = os.path.basename(os.path.realpath(path))
+    device_dir = os.path.join('/sys/class/tty', tty_name, 'device')
+    candidates = [
+        device_dir,
+        os.path.join(device_dir, '..'),
+        os.path.join(device_dir, '..', '..'),
+    ]
+
+    for candidate in candidates:
+        vendor_path = os.path.join(candidate, 'idVendor')
+        product_path = os.path.join(candidate, 'idProduct')
+        try:
+            with open(vendor_path, 'r', encoding='utf-8') as vendor_file:
+                vendor = vendor_file.read().strip().lower()
+            with open(product_path, 'r', encoding='utf-8') as product_file:
+                product = product_file.read().strip().lower()
+            if vendor and product:
+                return vendor, product
+        except OSError:
+            continue
+    return None
 
 
 @dataclass
@@ -157,9 +197,11 @@ class AlignToObstacles(Node):
         self.kp_linear = float(args.kp_linear)
         self.max_vx = float(args.max_vx)
         self.max_vy = float(args.max_vy)
+        self.max_speed_xy = float(args.max_speed_xy)
         self.kp_yaw = float(args.kp_yaw)
         self.max_wz = float(args.max_wz)
         self.yaw_tolerance_rad = math.radians(float(args.yaw_tolerance_deg))
+        self.yaw_translation_gate_rad = math.radians(float(args.yaw_translation_gate_deg))
         self.timeout_s = float(args.timeout_s)
         self.data_timeout_s = float(args.data_timeout_s)
         self.status_interval_s = float(args.status_interval_s)
@@ -203,53 +245,72 @@ class AlignToObstacles(Node):
 
     def start_serial_reader(self, args: argparse.Namespace) -> None:
         def worker() -> None:
-            reader = None
-            opened_port = None
-            last_error = None
-            for candidate in build_serial_candidates(args.serial_port):
-                try:
-                    reader = LD06Reader(
-                        port=candidate,
-                        baudrate=args.serial_baudrate,
-                        timeout=args.serial_timeout,
-                        angle_offset_deg=args.serial_offset,
-                    )
-                    opened_port = candidate
-                    break
-                except Exception as exc:  # pragma: no cover - hardware dependent
-                    last_error = exc
-                    self.get_logger().warn(f'direct serial open failed on {candidate}: {exc}')
-
-            if reader is None:
-                self._serial_error = str(last_error) if last_error is not None else 'no serial port candidate succeeded'
-                self.get_logger().warn(
-                    f'direct serial mode unavailable, requested {args.serial_port}, error: {self._serial_error}'
-                )
-                return
-
             estimator = SerialDirectionEstimator(
                 window_deg=args.serial_window,
                 min_intensity=args.serial_min_intensity,
                 min_distance_mm=1,
                 max_distance_mm=args.serial_max_distance_mm,
             )
-            self.get_logger().info(f'direct LD06 serial reader opened on {opened_port}')
-            try:
-                for points in reader.frames():
-                    if self._serial_stop.is_set():
+            retry_delay_s = 0.5
+
+            while not self._serial_stop.is_set():
+                reader = None
+                opened_port = None
+                last_error = None
+                for candidate in build_serial_candidates(args.serial_port):
+                    try:
+                        reader = LD06Reader(
+                            port=candidate,
+                            baudrate=args.serial_baudrate,
+                            timeout=args.serial_timeout,
+                            angle_offset_deg=args.serial_offset,
+                        )
+                        opened_port = candidate
+                        self._serial_error = None
                         break
-                    distances = estimator.update(points)
-                    if distances is None:
-                        continue
-                    self.serial_distances_mm = {
-                        'front': distances['front'],
-                        'left': distances['left'],
-                        'back': distances['back'],
-                        'right': distances['right'],
-                    }
-                    self.serial_time_monotonic = time.monotonic()
-            finally:
-                reader.close()
+                    except Exception as exc:  # pragma: no cover - hardware dependent
+                        last_error = exc
+                        self.get_logger().warn(f'direct serial open failed on {candidate}: {exc}')
+
+                if reader is None:
+                    self._serial_error = str(last_error) if last_error is not None else 'no serial port candidate succeeded'
+                    self.get_logger().warn(
+                        f'direct serial mode unavailable, requested {args.serial_port}, error: {self._serial_error}'
+                    )
+                    if self._serial_stop.wait(retry_delay_s):
+                        break
+                    continue
+
+                self.get_logger().info(f'direct LD06 serial reader opened on {opened_port}')
+                try:
+                    for points in reader.frames():
+                        if self._serial_stop.is_set():
+                            break
+                        distances = estimator.update(points)
+                        if distances is None:
+                            continue
+                        self.serial_distances_mm = {
+                            'front': distances['front'],
+                            'left': distances['left'],
+                            'back': distances['back'],
+                            'right': distances['right'],
+                        }
+                        self.serial_time_monotonic = time.monotonic()
+                except Exception as exc:  # pragma: no cover - hardware dependent
+                    self._serial_error = str(exc)
+                    self.get_logger().warn(f'direct serial read failed on {opened_port}: {exc}')
+                    self.serial_distances_mm = None
+                    self.serial_time_monotonic = None
+                    estimator = SerialDirectionEstimator(
+                        window_deg=args.serial_window,
+                        min_intensity=args.serial_min_intensity,
+                        min_distance_mm=1,
+                        max_distance_mm=args.serial_max_distance_mm,
+                    )
+                    if self._serial_stop.wait(retry_delay_s):
+                        break
+                finally:
+                    reader.close()
 
         self._serial_thread = threading.Thread(target=worker, daemon=True, name='ld06_serial_reader')
         self._serial_thread.start()
@@ -292,12 +353,14 @@ class AlignToObstacles(Node):
         x_error_mm = self.compute_axis_error_mm(distances_mm, 'front', 'back')
         y_error_mm = self.compute_axis_error_mm(distances_mm, 'left', 'right')
 
-        vx = 0.0
-        vy = 0.0
+        raw_vx = 0.0
+        raw_vy = 0.0
         if x_error_mm is not None and abs(x_error_mm) > self.tolerance_mm:
-            vx = clamp(self.kp_linear * x_error_mm, -self.max_vx, self.max_vx)
+            raw_vx = self.kp_linear * x_error_mm
         if y_error_mm is not None and abs(y_error_mm) > self.tolerance_mm:
-            vy = clamp(self.kp_linear * y_error_mm, -self.max_vy, self.max_vy)
+            raw_vy = self.kp_linear * y_error_mm
+
+        vx, vy = self.limit_planar_velocity(raw_vx, raw_vy)
 
         yaw_error = 0.0
         wz = 0.0
@@ -306,6 +369,9 @@ class AlignToObstacles(Node):
             yaw_error = normalize_angle_rad(self.lock_yaw - self.current_yaw)
             yaw_locked = abs(yaw_error) <= self.yaw_tolerance_rad
             wz = clamp(self.kp_yaw * yaw_error, -self.max_wz, self.max_wz)
+            translation_scale = self.compute_translation_scale(yaw_error)
+            vx *= translation_scale
+            vy *= translation_scale
 
         x_ok = x_error_mm is None or abs(x_error_mm) <= self.tolerance_mm
         y_ok = y_error_mm is None or abs(y_error_mm) <= self.tolerance_mm
@@ -323,6 +389,28 @@ class AlignToObstacles(Node):
         self.cmd_pub.publish(cmd)
         self.stop_sent = False
         self.emit_status(distances_mm, x_error_mm, y_error_mm, vx, vy, wz)
+
+    def limit_planar_velocity(self, vx: float, vy: float) -> tuple[float, float]:
+        scale = 1.0
+        if abs(vx) > self.max_vx and abs(vx) > 1e-9:
+            scale = min(scale, self.max_vx / abs(vx))
+        if abs(vy) > self.max_vy and abs(vy) > 1e-9:
+            scale = min(scale, self.max_vy / abs(vy))
+
+        planar_speed = math.hypot(vx, vy)
+        if self.max_speed_xy > 0.0 and planar_speed > self.max_speed_xy and planar_speed > 1e-9:
+            scale = min(scale, self.max_speed_xy / planar_speed)
+
+        return vx * scale, vy * scale
+
+    def compute_translation_scale(self, yaw_error_rad: float) -> float:
+        if self.yaw_translation_gate_rad <= 0.0:
+            return 1.0
+        abs_error = abs(yaw_error_rad)
+        if abs_error <= self.yaw_translation_gate_rad:
+            return 1.0
+        scale = self.yaw_translation_gate_rad / abs_error
+        return clamp(scale, 0.0, 1.0)
 
     def compute_axis_error_mm(
         self,
@@ -415,7 +503,7 @@ class AlignToObstacles(Node):
             error_mm[name] = None if target is None or measured is None else measured - target
 
         self.get_logger().info(
-            'status target_mm=%s current_mm=%s error_mm=%s cmd={vx: %.3f, vy: %.3f, wz: %.3f} axis_error={x: %s, y: %s}'
+            'status target_mm=%s current_mm=%s error_mm=%s cmd={vx: %.3f, vy: %.3f, wz: %.3f} axis_error={x: %s, y: %s} yaw={current: %s, lock: %s}'
             % (
                 self.targets_mm,
                 distances_mm,
@@ -425,6 +513,8 @@ class AlignToObstacles(Node):
                 wz,
                 x_error_mm,
                 y_error_mm,
+                None if self.current_yaw is None else round(math.degrees(self.current_yaw), 2),
+                None if self.lock_yaw is None else round(math.degrees(self.lock_yaw), 2),
             )
         )
 

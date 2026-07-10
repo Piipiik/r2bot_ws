@@ -192,7 +192,7 @@ def build_argparser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description="Read LD06 data from serial and print obstacle distance in four directions."
     )
-    parser.add_argument("--port", default="/dev/ttyACM0", help="serial device path")
+    parser.add_argument("--port", default="/dev/lidar_ld06", help="serial device path")
     parser.add_argument("--baudrate", type=int, default=230400, help="serial baudrate")
     parser.add_argument("--timeout", type=float, default=0.1, help="serial read timeout in seconds")
     parser.add_argument(

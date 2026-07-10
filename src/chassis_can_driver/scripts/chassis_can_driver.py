@@ -272,10 +272,12 @@ class ChassisCanNode(Node):
     def _inverse_kinematics(self, vx: float, vy: float, wz: float) -> Dict[str, float]:
         radius = self.wheel_center_radius_m
         return {
+            # X-drive with 90 deg omni wheels: wheel axes point toward the chassis center.
+            # For pure +vy motion, wheel commands should be lf-, lr+, rf+, rr-.
             'lf': (vx - vy) * INV_SQRT2 - radius * wz,
             'lr': (vx + vy) * INV_SQRT2 - radius * wz,
-            'rf': -(vx + vy) * INV_SQRT2 - radius * wz,
-            'rr': -(vx - vy) * INV_SQRT2 - radius * wz,
+            'rf': -(vx - vy) * INV_SQRT2 - radius * wz,
+            'rr': -(vx + vy) * INV_SQRT2 - radius * wz,
         }
 
     def _encode_wheel_commands(self, wheel_cmds: Dict[str, float]) -> Dict[str, int]:
@@ -310,8 +312,8 @@ class ChassisCanNode(Node):
         vy = (
             -wheel_speeds['lf']
             + wheel_speeds['lr']
-            - wheel_speeds['rf']
-            + wheel_speeds['rr']
+            + wheel_speeds['rf']
+            - wheel_speeds['rr']
         ) / (2.0 * SQRT2)
         wz = -sum(wheel_speeds.values()) / (4.0 * radius)
 

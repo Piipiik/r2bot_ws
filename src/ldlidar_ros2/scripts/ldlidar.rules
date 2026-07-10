@@ -1,5 +1,7 @@
-# set the udev rule, make the device port fixed for LDLiDAR on this robot
-# Legacy CP210x USB Device
-KERNEL=="ttyUSB*", ATTRS{idVendor}=="10c4", ATTRS{idProduct}=="ea60", MODE:="0666", SYMLINK+="jlink_lidar"
-# Current ACM device used by the robot
-KERNEL=="ttyACM*", ATTRS{idVendor}=="1366", ATTRS{idProduct}=="0105", MODE:="0666", SYMLINK+="jlink_lidar"
+# Fixed device names for this robot.
+# CANable2 USB-CAN adapter
+KERNEL=="ttyACM*", ATTRS{idVendor}=="16d0", ATTRS{idProduct}=="117e", ATTRS{serial}=="208C37AF4845", MODE:="0666", SYMLINK+="can_adapter"
+# LDLiDAR data forwarded through SEGGER J-Link serial bridge
+KERNEL=="ttyACM*", ATTRS{idVendor}=="1366", ATTRS{idProduct}=="0105", ATTRS{serial}=="000063728613", MODE:="0666", SYMLINK+="lidar_ld06", SYMLINK+="jlink_lidar"
+# Legacy CP210x USB Device kept for compatibility
+KERNEL=="ttyUSB*", ATTRS{idVendor}=="10c4", ATTRS{idProduct}=="ea60", MODE:="0666", SYMLINK+="lidar_ld06", SYMLINK+="jlink_lidar"
