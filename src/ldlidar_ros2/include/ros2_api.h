@@ -27,6 +27,8 @@
 #include <sensor_msgs/msg/channel_float32.hpp>
 #include <geometry_msgs/msg/point32.hpp>
 #include <string>
+#include <utility>
+#include <vector>
 
 struct LaserScanSetting
 {
@@ -35,6 +37,7 @@ struct LaserScanSetting
   bool enable_angle_crop_func;
   double angle_crop_min;
   double angle_crop_max;
+  std::vector<std::pair<double, double>> keep_angle_ranges_deg;
   double range_min;
   double range_max;
 };

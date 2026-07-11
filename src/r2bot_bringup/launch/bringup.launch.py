@@ -13,6 +13,7 @@ def generate_launch_description():
     use_camera = LaunchConfiguration('use_camera')
     enable_object_follower = LaunchConfiguration('enable_object_follower')
     lidar_port_name = LaunchConfiguration('lidar_port_name')
+    lidar_keep_angle_ranges_deg_csv = LaunchConfiguration('lidar_keep_angle_ranges_deg_csv')
 
     # 1. URDF 与 TF
     urdf2tf = launch.actions.IncludeLaunchDescription(
@@ -49,6 +50,7 @@ def generate_launch_description():
         ),
         launch_arguments={
             'port_name': lidar_port_name,
+            'keep_angle_ranges_deg_csv': lidar_keep_angle_ranges_deg_csv,
         }.items(),
     )
     ldlidar_delay = launch.actions.TimerAction(period=5.0, actions=[ldlidar])
@@ -75,7 +77,8 @@ def generate_launch_description():
     return launch.LaunchDescription([
         launch.actions.DeclareLaunchArgument('use_camera', default_value='true'),
         launch.actions.DeclareLaunchArgument('enable_object_follower', default_value='false'),
-        launch.actions.DeclareLaunchArgument('lidar_port_name', default_value='/dev/jlink_lidar'),
+        launch.actions.DeclareLaunchArgument('lidar_port_name', default_value='/dev/lidar_ld06'),
+        launch.actions.DeclareLaunchArgument('lidar_keep_angle_ranges_deg_csv', default_value=''),
         urdf2tf,
         odom_calc_node,
         chassis_driver,

@@ -20,6 +20,11 @@
  */
 #include "ros2_api.h"
 #include "ldlidar_driver/ldlidar_driver_linux.h"
+#include <algorithm>
+#include <cctype>
+#include <cmath>
+#include <sstream>
+#include <stdexcept>
 
 uint64_t GetTimestamp(void);
 
@@ -29,6 +34,98 @@ void  ToLaserscanMessagePublish(ldlidar::Points2D& src,  double lidar_spin_freq,
 void  ToSensorPointCloudMessagePublish(ldlidar::Points2D& src, LaserScanSetting& setting,
   rclcpp::Node::SharedPtr& node, rclcpp::Publisher<sensor_msgs::msg::PointCloud>::SharedPtr& lidarpub);
 
+namespace {
+
+double NormalizeAngleDeg(double angle_deg) {
+  double normalized = std::fmod(angle_deg, 360.0);
+  if (normalized < 0.0) {
+    normalized += 360.0;
+  }
+  return normalized;
+}
+
+double ToRobotForwardAngleDeg(double lidar_angle_deg, const LaserScanSetting& setting) {
+  if (setting.laser_scan_dir) {
+    return NormalizeAngleDeg(360.0 - lidar_angle_deg);
+  }
+  return NormalizeAngleDeg(lidar_angle_deg);
+}
+
+bool IsAngleWithinRangeDeg(double angle_deg, double range_min_deg, double range_max_deg) {
+  const double angle = NormalizeAngleDeg(angle_deg);
+  const double min_angle = NormalizeAngleDeg(range_min_deg);
+  const double max_angle = NormalizeAngleDeg(range_max_deg);
+  if (min_angle <= max_angle) {
+    return angle >= min_angle && angle <= max_angle;
+  }
+  return angle >= min_angle || angle <= max_angle;
+}
+
+std::vector<std::pair<double, double>> ParseKeepAngleRanges(const std::string& csv) {
+  std::string normalized = csv;
+  for (char& ch : normalized) {
+    if (ch == ';' || ch == '|') {
+      ch = ',';
+    }
+  }
+
+  std::stringstream stream(normalized);
+  std::string item;
+  std::vector<double> values;
+  while (std::getline(stream, item, ',')) {
+    item.erase(
+      std::remove_if(item.begin(), item.end(), [](unsigned char c) { return std::isspace(c); }),
+      item.end()
+    );
+    if (item.empty()) {
+      continue;
+    }
+    values.push_back(std::stod(item));
+  }
+
+  if (values.empty()) {
+    return {};
+  }
+  if (values.size() % 2 != 0) {
+    throw std::runtime_error("keep_angle_ranges_deg_csv must contain min/max pairs");
+  }
+
+  std::vector<std::pair<double, double>> ranges;
+  for (size_t i = 0; i < values.size(); i += 2) {
+    ranges.emplace_back(values[i], values[i + 1]);
+  }
+  return ranges;
+}
+
+bool ShouldKeepAngle(double lidar_angle_deg, const LaserScanSetting& setting) {
+  if (setting.keep_angle_ranges_deg.empty()) {
+    return true;
+  }
+
+  const double robot_angle_deg = ToRobotForwardAngleDeg(lidar_angle_deg, setting);
+  for (const auto& range : setting.keep_angle_ranges_deg) {
+    if (IsAngleWithinRangeDeg(robot_angle_deg, range.first, range.second)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+bool ShouldMaskAngle(double lidar_angle_deg, const LaserScanSetting& setting) {
+  if (!ShouldKeepAngle(lidar_angle_deg, setting)) {
+    return true;
+  }
+
+  if (!setting.enable_angle_crop_func) {
+    return false;
+  }
+
+  const double robot_angle_deg = ToRobotForwardAngleDeg(lidar_angle_deg, setting);
+  return IsAngleWithinRangeDeg(robot_angle_deg, setting.angle_crop_min, setting.angle_crop_max);
+}
+
+}  // namespace
+
 int main(int argc, char **argv) {
   rclcpp::init(argc, argv);
 
@@ -36,9 +133,10 @@ int main(int argc, char **argv) {
   auto node = std::make_shared<rclcpp::Node>("ldlidar_published"); 
 
   std::string product_name;
-	std::string laser_scan_topic_name;
+std::string laser_scan_topic_name;
   std::string point_cloud_2d_topic_name;
-	std::string port_name;
+  std::string keep_angle_ranges_deg_csv;
+std::string port_name;
   LaserScanSetting setting;
   int serial_baudrate;
   ldlidar::LDType lidartypename;
@@ -51,6 +149,7 @@ int main(int argc, char **argv) {
   node->declare_parameter<std::string>("port_name", port_name);
   node->declare_parameter<int>("serial_baudrate", serial_baudrate);
   node->declare_parameter<bool>("laser_scan_dir", setting.laser_scan_dir);
+  node->declare_parameter<std::string>("keep_angle_ranges_deg_csv", keep_angle_ranges_deg_csv);
   node->declare_parameter<bool>("enable_angle_crop_func", setting.enable_angle_crop_func);
   node->declare_parameter<double>("angle_crop_min", setting.angle_crop_min);
   node->declare_parameter<double>("angle_crop_max", setting.angle_crop_max);
@@ -65,11 +164,19 @@ int main(int argc, char **argv) {
   node->get_parameter("port_name", port_name);
   node->get_parameter("serial_baudrate", serial_baudrate);
   node->get_parameter("laser_scan_dir", setting.laser_scan_dir);
+  node->get_parameter("keep_angle_ranges_deg_csv", keep_angle_ranges_deg_csv);
   node->get_parameter("enable_angle_crop_func", setting.enable_angle_crop_func);
   node->get_parameter("angle_crop_min", setting.angle_crop_min);
   node->get_parameter("angle_crop_max", setting.angle_crop_max);
   node->get_parameter("range_min", setting.range_min);
   node->get_parameter("range_max", setting.range_max);
+
+  try {
+    setting.keep_angle_ranges_deg = ParseKeepAngleRanges(keep_angle_ranges_deg_csv);
+  } catch (const std::exception& ex) {
+    RCLCPP_ERROR(node->get_logger(), "Invalid keep_angle_ranges_deg_csv: %s", ex.what());
+    return EXIT_FAILURE;
+  }
 
   ldlidar::LDLidarDriverLinuxInterface* ldlidar_drv = 
     ldlidar::LDLidarDriverLinuxInterface::Create();
@@ -83,6 +190,8 @@ int main(int argc, char **argv) {
   RCLCPP_INFO(node->get_logger(), "<port_name>: %s ", port_name.c_str());
   RCLCPP_INFO(node->get_logger(), "<serial_baudrate>: %d ", serial_baudrate);
   RCLCPP_INFO(node->get_logger(), "<laser_scan_dir>: %s", (setting.laser_scan_dir?"Counterclockwise":"Clockwise"));
+  RCLCPP_INFO(node->get_logger(), "<keep_angle_ranges_deg_csv>: %s",
+    keep_angle_ranges_deg_csv.empty() ? "<empty>" : keep_angle_ranges_deg_csv.c_str());
   RCLCPP_INFO(node->get_logger(), "<enable_angle_crop_func>: %s", (setting.enable_angle_crop_func?"true":"false"));
   RCLCPP_INFO(node->get_logger(), "<angle_crop_min>: %f", setting.angle_crop_min);
   RCLCPP_INFO(node->get_logger(), "<angle_crop_max>: %f", setting.angle_crop_max);
@@ -244,11 +353,9 @@ void  ToLaserscanMessagePublish(ldlidar::Points2D& src,  double lidar_spin_freq,
         intensity = std::numeric_limits<float>::quiet_NaN();
       }
 
-      if (setting.enable_angle_crop_func) { // Angle crop setting, Mask data within the set angle range
-        if ((dir_angle >= setting.angle_crop_min) && (dir_angle <= setting.angle_crop_max)) {
-          range = std::numeric_limits<float>::quiet_NaN();
-          intensity = std::numeric_limits<float>::quiet_NaN();
-        }
+      if (ShouldMaskAngle(dir_angle, setting)) {
+        range = std::numeric_limits<float>::quiet_NaN();
+        intensity = std::numeric_limits<float>::quiet_NaN();
       }
 
       float angle = ANGLE_TO_RADIAN(dir_angle); // Lidar angle unit form degree transform to radian
@@ -310,15 +417,6 @@ void  ToSensorPointCloudMessagePublish(ldlidar::Points2D& src, LaserScanSetting&
     return;
   }
 
-  if (setting.laser_scan_dir) {
-    for (auto&point : dst) {
-      point.angle = 360.f - point.angle;
-      if (point.angle < 0) {
-        point.angle += 360.f;
-      }
-    }
-  } 
-
   int frame_points_num = static_cast<int>(dst.size());
 
   sensor_msgs::msg::PointCloud output;
@@ -354,8 +452,11 @@ void  ToSensorPointCloudMessagePublish(ldlidar::Points2D& src, LaserScanSetting&
 
   for (int i = 0; i < frame_points_num; i++) {
     float range = dst[i].distance / 1000.f;  // distance unit transform to meters
-    float intensity = dst[i].intensity;      // laser receive intensity 
-    float dir_angle = ANGLE_TO_RADIAN(dst[i].angle);
+    float intensity = dst[i].intensity;      // laser receive intensity
+    if (ShouldMaskAngle(dst[i].angle, setting)) {
+      continue;
+    }
+    float dir_angle = ANGLE_TO_RADIAN(ToRobotForwardAngleDeg(dst[i].angle, setting));
     //  极坐标系转换为笛卡尔直角坐标系
     output.points[i].x = range * cos(dir_angle);
     output.points[i].y = range * sin(dir_angle);

@@ -26,6 +26,7 @@ Parameter Description:
 def generate_launch_description():
   port_name = LaunchConfiguration('port_name')
   serial_baudrate = LaunchConfiguration('serial_baudrate')
+  keep_angle_ranges_deg_csv = LaunchConfiguration('keep_angle_ranges_deg_csv')
 
   # LDROBOT LiDAR publisher node
   ldlidar_node = Node(
@@ -41,6 +42,7 @@ def generate_launch_description():
         {'port_name': port_name},
         {'serial_baudrate': serial_baudrate},
         {'laser_scan_dir': True},
+        {'keep_angle_ranges_deg_csv': keep_angle_ranges_deg_csv},
         {'enable_angle_crop_func': False},
         {'angle_crop_min': 135.0},  # unit is degress
         {'angle_crop_max': 225.0},  # unit is degress
@@ -53,8 +55,9 @@ def generate_launch_description():
   # Define LaunchDescription variable
   ld = LaunchDescription()
 
-  ld.add_action(DeclareLaunchArgument('port_name', default_value='/dev/jlink_lidar'))
+  ld.add_action(DeclareLaunchArgument('port_name', default_value='/dev/lidar_ld06'))
   ld.add_action(DeclareLaunchArgument('serial_baudrate', default_value='230400'))
+  ld.add_action(DeclareLaunchArgument('keep_angle_ranges_deg_csv', default_value=''))
   ld.add_action(ldlidar_node)
 
   return ld
