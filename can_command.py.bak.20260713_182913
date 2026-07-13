@@ -6,10 +6,8 @@ Usage from r2_run.sh:
 
 argv[1] is the device index, argv[2] is baud choice:
   1 -> 1 Mbps, 2 -> 500 kbps, 3 -> 250 kbps, 4 -> 125 kbps
-When run interactively, the script prompts for the sudo password.
-When stdin is piped, the first line is used as the sudo password.
+stdin is used as the sudo password when sudo asks for one.
 """
-import getpass
 import glob
 import os
 import subprocess
@@ -40,20 +38,6 @@ def devices():
 
 
 def sudo_password():
-    probe = subprocess.run(
-        ['sudo', '-n', 'true'],
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-    )
-    if probe.returncode == 0:
-        return ''
-
-    if sys.stdin.isatty():
-        try:
-            return getpass.getpass('sudo password: ')
-        except (EOFError, KeyboardInterrupt):
-            return ''
-
     try:
         return sys.stdin.readline().rstrip('\n')
     except Exception:

@@ -239,6 +239,9 @@ class AlignToObstacles(Node):
             'scan direction uses ROS convention: front=0 deg, left=90 deg, back=180 deg, right=270 deg'
         )
         self.get_logger().info(f'distance source mode: {self.source_mode}')
+        self.get_logger().info(
+            'motion policy: correct heading first, then translate with zero angular velocity'
+        )
 
         if self.source_mode in ('auto', 'serial'):
             self.start_serial_reader(args)
@@ -363,15 +366,20 @@ class AlignToObstacles(Node):
         vx, vy = self.limit_planar_velocity(raw_vx, raw_vy)
 
         yaw_error = 0.0
+        correction_wz = 0.0
         wz = 0.0
         yaw_locked = True
         if self.lock_yaw is not None and self.current_yaw is not None:
             yaw_error = normalize_angle_rad(self.lock_yaw - self.current_yaw)
             yaw_locked = abs(yaw_error) <= self.yaw_tolerance_rad
-            wz = clamp(self.kp_yaw * yaw_error, -self.max_wz, self.max_wz)
-            translation_scale = self.compute_translation_scale(yaw_error)
-            vx *= translation_scale
-            vy *= translation_scale
+            correction_wz = clamp(self.kp_yaw * yaw_error, -self.max_wz, self.max_wz)
+
+            if not yaw_locked:
+                vx = 0.0
+                vy = 0.0
+                wz = correction_wz
+            else:
+                wz = 0.0
 
         x_ok = x_error_mm is None or abs(x_error_mm) <= self.tolerance_mm
         y_ok = y_error_mm is None or abs(y_error_mm) <= self.tolerance_mm

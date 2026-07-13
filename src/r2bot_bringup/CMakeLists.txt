@@ -69,6 +69,7 @@ install(PROGRAMS
   scripts/rgbd_object_approach.py
   scripts/direction.py
   scripts/align_to_obstacles.py
+  scripts/approach_lidar_box_face.py
   DESTINATION lib/${PROJECT_NAME}
 )
 

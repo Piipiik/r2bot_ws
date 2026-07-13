@@ -10,7 +10,6 @@ from typing import Dict, Optional
 
 import rclpy
 from geometry_msgs.msg import Twist
-from nav_msgs.msg import Odometry
 from rclpy.executors import ExternalShutdownException
 from rclpy.node import Node
 from std_msgs.msg import Float32MultiArray, Int32MultiArray
@@ -39,20 +38,6 @@ STATUS_IDS = {
     0x325: 'rf',
     0x326: 'rr',
 }
-
-
-def normalize_angle(angle: float) -> float:
-    while angle > math.pi:
-        angle -= 2.0 * math.pi
-    while angle <= -math.pi:
-        angle += 2.0 * math.pi
-    return angle
-
-
-def quaternion_to_yaw(x: float, y: float, z: float, w: float) -> float:
-    siny_cosp = 2.0 * (w * z + x * y)
-    cosy_cosp = 1.0 - 2.0 * (y * y + z * z)
-    return math.atan2(siny_cosp, cosy_cosp)
 
 
 @dataclass
@@ -97,20 +82,13 @@ class ChassisCanNode(Node):
         self.declare_parameter('encoder_ticks_per_rev', 4320.0)
         self.declare_parameter('speed_sample_period_s', 0.01)
         self.declare_parameter('max_motor_speed_cmd', 100)
-        self.declare_parameter('enable_wheel_pid', False)
+        self.declare_parameter('enable_wheel_pid', True)
         self.declare_parameter('wheel_pid_kp', 0.6)
         self.declare_parameter('wheel_pid_ki', 0.15)
         self.declare_parameter('wheel_pid_kd', 0.0)
         self.declare_parameter('wheel_pid_integral_limit', 20.0)
         self.declare_parameter('wheel_pid_correction_limit', 30.0)
         self.declare_parameter('wheel_feedback_timeout', 0.3)
-        self.declare_parameter('enable_heading_hold', True)
-        self.declare_parameter('heading_hold_topic', '/odom')
-        self.declare_parameter('heading_hold_kp', 6.0)
-        self.declare_parameter('heading_hold_max_wz', 1.0)
-        self.declare_parameter('heading_hold_min_linear_speed', 0.02)
-        self.declare_parameter('heading_hold_wz_deadband', 0.02)
-        self.declare_parameter('heading_hold_yaw_timeout', 0.3)
 
         self.can_interface = str(self.get_parameter('can_interface').value)
         self.send_period = float(self.get_parameter('send_period').value)
@@ -128,13 +106,6 @@ class ChassisCanNode(Node):
         self.wheel_pid_integral_limit = float(self.get_parameter('wheel_pid_integral_limit').value)
         self.wheel_pid_correction_limit = float(self.get_parameter('wheel_pid_correction_limit').value)
         self.wheel_feedback_timeout = float(self.get_parameter('wheel_feedback_timeout').value)
-        self.enable_heading_hold = bool(self.get_parameter('enable_heading_hold').value)
-        self.heading_hold_topic = str(self.get_parameter('heading_hold_topic').value)
-        self.heading_hold_kp = float(self.get_parameter('heading_hold_kp').value)
-        self.heading_hold_max_wz = float(self.get_parameter('heading_hold_max_wz').value)
-        self.heading_hold_min_linear_speed = float(self.get_parameter('heading_hold_min_linear_speed').value)
-        self.heading_hold_wz_deadband = float(self.get_parameter('heading_hold_wz_deadband').value)
-        self.heading_hold_yaw_timeout = float(self.get_parameter('heading_hold_yaw_timeout').value)
 
         if self.send_period <= 0.0:
             self.send_period = 0.05
@@ -158,14 +129,6 @@ class ChassisCanNode(Node):
             self.wheel_pid_correction_limit = 0.0
         if self.wheel_feedback_timeout <= 0.0:
             self.wheel_feedback_timeout = 0.3
-        if self.heading_hold_max_wz < 0.0:
-            self.heading_hold_max_wz = 0.0
-        if self.heading_hold_min_linear_speed < 0.0:
-            self.heading_hold_min_linear_speed = 0.0
-        if self.heading_hold_wz_deadband < 0.0:
-            self.heading_hold_wz_deadband = 0.0
-        if self.heading_hold_yaw_timeout <= 0.0:
-            self.heading_hold_yaw_timeout = 0.3
 
         self.wheel_radius_m = self.wheel_diameter_m * 0.5
         self.wheel_circumference_m = math.pi * self.wheel_diameter_m
@@ -175,12 +138,6 @@ class ChassisCanNode(Node):
         self.last_cmd_time = time.monotonic()
         self.last_command_log_time = 0.0
         self.cmd_lock = threading.Lock()
-        self.yaw_lock: Optional[float] = None
-        self.current_yaw: Optional[float] = None
-        self.last_yaw_time = 0.0
-        self.heading_hold_active = False
-        self.last_heading_log_time = 0.0
-        self.yaw_lock_lock = threading.Lock()
 
         self.state_lock = threading.Lock()
         self.wheel_states = {name: WheelState(name=name) for name in WHEEL_NAMES}
@@ -192,7 +149,6 @@ class ChassisCanNode(Node):
         self._running.set()
 
         self.cmd_vel_sub = self.create_subscription(Twist, '/cmd_vel', self.cmd_vel_callback, 10)
-        self.odom_sub = self.create_subscription(Odometry, self.heading_hold_topic, self.odom_callback, 10)
         self.current_vel_pub = self.create_publisher(Twist, 'current_velocity', 10)
         self.wheel_speed_pub = self.create_publisher(Float32MultiArray, 'wheel_speeds', 10)
         self.wheel_encoder_pub = self.create_publisher(Int32MultiArray, 'wheel_encoders', 10)
@@ -211,17 +167,6 @@ class ChassisCanNode(Node):
                 self.wheel_pid_kp,
                 self.wheel_pid_ki,
                 self.wheel_pid_kd,
-            )
-        )
-        self.get_logger().info(
-            '航向保持: %s topic=%s kp=%.3f max_wz=%.3f min_speed=%.3f wz_deadband=%.3f'
-            % (
-                '启用' if self.enable_heading_hold else '关闭',
-                self.heading_hold_topic,
-                self.heading_hold_kp,
-                self.heading_hold_max_wz,
-                self.heading_hold_min_linear_speed,
-                self.heading_hold_wz_deadband,
             )
         )
         self.get_logger().info('命令映射: 0x123/124/125/126 + [0x11, speed]')
@@ -270,16 +215,6 @@ class ChassisCanNode(Node):
             self.target_cmd = msg
             self.last_cmd_time = time.monotonic()
 
-        if abs(msg.angular.z) > self.heading_hold_wz_deadband:
-            self._reset_heading_hold()
-
-    def odom_callback(self, msg: Odometry):
-        orientation = msg.pose.pose.orientation
-        yaw = quaternion_to_yaw(orientation.x, orientation.y, orientation.z, orientation.w)
-        with self.yaw_lock_lock:
-            self.current_yaw = yaw
-            self.last_yaw_time = time.monotonic()
-
     def _send_cmd_loop(self):
         if self.can_socket is None:
             return
@@ -296,7 +231,6 @@ class ChassisCanNode(Node):
             cmd.linear.y = 0.0
             cmd.angular.z = 0.0
 
-        cmd = self._apply_heading_hold(cmd, expired)
         wheel_targets = self._inverse_kinematics(cmd.linear.x, cmd.linear.y, cmd.angular.z)
         base_scaled = self._scale_wheel_commands(wheel_targets)
         scaled = self._apply_wheel_pid(base_scaled, expired)
@@ -310,70 +244,6 @@ class ChassisCanNode(Node):
         except OSError as exc:
             self.get_logger().error(f'CAN 发送失败: {exc}')
             self._close_can_socket()
-
-    def _apply_heading_hold(self, cmd: Twist, expired: bool) -> Twist:
-        if not self.enable_heading_hold:
-            return cmd
-
-        linear_speed = math.hypot(cmd.linear.x, cmd.linear.y)
-        user_rotating = abs(cmd.angular.z) > self.heading_hold_wz_deadband
-        if expired or user_rotating or linear_speed < self.heading_hold_min_linear_speed:
-            self._reset_heading_hold()
-            return cmd
-
-        now = time.monotonic()
-        with self.yaw_lock_lock:
-            yaw_available = (
-                self.current_yaw is not None
-                and now - self.last_yaw_time <= self.heading_hold_yaw_timeout
-            )
-            current_yaw = self.current_yaw
-            if yaw_available and self.yaw_lock is None:
-                self.yaw_lock = current_yaw
-                self.heading_hold_active = True
-            yaw_lock = self.yaw_lock
-
-        if not yaw_available or current_yaw is None or yaw_lock is None:
-            self._reset_heading_hold()
-            return cmd
-
-        yaw_error = normalize_angle(yaw_lock - current_yaw)
-        correction = self._clamp(
-            -self.heading_hold_kp * yaw_error,
-            -self.heading_hold_max_wz,
-            self.heading_hold_max_wz,
-        )
-
-        corrected = Twist()
-        corrected.linear.x = cmd.linear.x
-        corrected.linear.y = cmd.linear.y
-        corrected.linear.z = cmd.linear.z
-        corrected.angular.x = cmd.angular.x
-        corrected.angular.y = cmd.angular.y
-        corrected.angular.z = correction
-
-        self._log_heading_hold(yaw_lock, current_yaw, yaw_error, correction)
-        return corrected
-
-    def _reset_heading_hold(self):
-        with self.yaw_lock_lock:
-            self.yaw_lock = None
-            self.heading_hold_active = False
-
-    def _log_heading_hold(self, yaw_lock: float, current_yaw: float, yaw_error: float, correction: float):
-        now = time.monotonic()
-        if now - self.last_heading_log_time < 0.5:
-            return
-        self.last_heading_log_time = now
-        self.get_logger().info(
-            'heading_hold lock=%.2f current=%.2f error=%.2f deg correction_wz=%.3f'
-            % (
-                math.degrees(yaw_lock),
-                math.degrees(current_yaw),
-                math.degrees(yaw_error),
-                correction,
-            )
-        )
 
     def _recv_loop(self):
         while self._running.is_set():
